@@ -1,0 +1,28 @@
+{
+  "name": "pagaska-music-backend",
+  "version": "3.0.0",
+  "description": "Pagaska Music Backend — Cloudflare R2 Storage Edition",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "axios": "^1.6.2",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["pagaska", "music", "cloudflare-r2", "yt-dlp"],
+  "author": "Vexcompany",
+  "license": "MIT"
+}
