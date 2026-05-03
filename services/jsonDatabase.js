@@ -7,10 +7,13 @@ const path = require('path');
 
 class JsonDatabase {
     constructor() {
-        const dataDir   = process.env.DATA_DIR
-                       || (process.env.VERCEL ? '/tmp/pagaska-data' : path.join(__dirname, '../data'));
-        this.dbPath     = path.join(dataDir, 'tracks.json');
-        this._ready     = this._ensureDirectory(dataDir);
+        // On Vercel: filesystem is read-only. /tmp is writable but ephemeral
+        // (resets on each cold start). This DB is best-effort metadata cache only.
+        const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+        const dataDir  = process.env.DATA_DIR
+                      || (isVercel ? '/tmp/pagaska-data' : path.join(__dirname, '../data'));
+        this.dbPath    = path.join(dataDir, 'tracks.json');
+        this._ready    = this._ensureDirectory(dataDir);
     }
 
     async _ensureDirectory(dir) {
