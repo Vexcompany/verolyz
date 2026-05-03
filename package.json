@@ -10,6 +10,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "youtube-dl-exec": "^3.0.0",
     "axios": "^1.6.2",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
