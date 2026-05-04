@@ -41,11 +41,20 @@ class AppleDownloaderService {
                         || data?.mp3
                         || null;
 
-            const title  = data?.result?.title  || data?.title  || 'Unknown';
-            const artist = data?.result?.artist  || data?.artist || 'Unknown';
+            // Ambil metadata dari semua kemungkinan field nexray
+            const title  = data?.result?.title  || data?.result?.name
+                        || data?.title          || data?.name
+                        || data?.metadata?.title || null;
+            const artist = data?.result?.artist  || data?.result?.singer
+                        || data?.artist          || data?.singer
+                        || data?.result?.author  || data?.author
+                        || data?.metadata?.artist || null;
             const image  = data?.result?.image   || data?.result?.thumbnail
-                        || data?.image           || data?.thumbnail || null;
-            const duration = data?.result?.duration || data?.duration || null;
+                        || data?.result?.cover   || data?.result?.artwork
+                        || data?.image           || data?.thumbnail
+                        || data?.cover           || null;
+            const duration = data?.result?.duration || data?.result?.length
+                          || data?.duration         || data?.length || null;
 
             if (!mp3Url) {
                 console.error('[nexray] Full response:', JSON.stringify(data).substring(0, 300));

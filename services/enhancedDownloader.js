@@ -39,8 +39,8 @@ class EnhancedDownloaderService {
             console.log('[downloader] R2 cache hit:', cacheKey);
             return {
                 url:       cached,
-                title:     title     || 'Unknown',
-                artist:    artist    || 'Unknown',
+                title:     title     || null,
+                artist:    artist    || null,
                 thumbnail: thumbnail || null,
                 duration:  duration  || '0:00',
             };
@@ -77,8 +77,8 @@ class EnhancedDownloaderService {
                 const dlResult = await appleDownloader.download(appleUrl);
                 mp3Url = dlResult?.result?.download?.mp3 || null;
                 metaOut = {
-                    title:     dlResult?.result?.title    || title     || 'Unknown',
-                    artist:    dlResult?.result?.artist   || artist    || 'Unknown',
+                    title:     dlResult?.result?.title    || title     || null,
+                    artist:    dlResult?.result?.artist   || artist    || null,
                     thumbnail: dlResult?.result?.image    || thumbnail || null,
                     duration:  dlResult?.result?.duration || duration  || '0:00',
                 };
