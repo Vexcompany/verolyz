@@ -3,7 +3,7 @@
 const express = require('express');
 const app     = express();
 
-// ── CORS ─────────────────────────────────────────────────────────
+// ── CORS — HARUS paling pertama, sebelum route apapun ────────────
 const corsMiddleware = require('./middleware/cors');
 app.use(corsMiddleware);
 
@@ -47,11 +47,13 @@ app.use((err, req, res, _next) => {
     res.status(500).json({ status: false, message: err.message });
 });
 
-// ── Start ────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ Pagaska Music Backend running on port ${PORT}`);
-    console.log(`   R2 Bucket: ${process.env.R2_BUCKET_NAME || '(not set)'}`);
-});
+// ── Start (hanya berjalan saat lokal, Vercel handle sendiri) ─────
+if (process.env.NODE_ENV !== 'production' || process.env.VERCEL !== '1') {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`✅ Pagaska Music Backend running on port ${PORT}`);
+        console.log(`   R2 Bucket: ${process.env.R2_BUCKET_NAME || '(not set)'}`);
+    });
+}
 
 module.exports = app;
