@@ -1,7 +1,7 @@
 {
   "name": "pagaska-music-backend",
-  "version": "3.0.0",
-  "description": "Pagaska Music Backend — Cloudflare R2 Storage Edition",
+  "version": "3.1.0",
+  "description": "Pagaska Music Backend — Cloudflare R2 + ytdl-core (Vercel-ready)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,7 +10,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
-    "youtube-dl-exec": "^3.0.0",
+    "@distube/ytdl-core": "^4.14.4",
     "axios": "^1.6.2",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
@@ -21,9 +21,6 @@
     "nodemon": "^3.0.2"
   },
   "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": ["pagaska", "music", "cloudflare-r2", "yt-dlp"],
-  "author": "Vexcompany",
-  "license": "MIT"
+    "node": "24.x"
+  }
 }
