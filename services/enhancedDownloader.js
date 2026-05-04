@@ -1,139 +1,130 @@
 // services/enhancedDownloader.js
-// Uses @distube/ytdl-core — pure Node.js, no binary needed, works on Vercel
-// Flow: YouTube → ytdl stream → Cloudflare R2
+// Flow: Apple Music URL → nexray API → mp3 buffer → Cloudflare R2
+// Tidak pakai yt-dlp, tidak pakai ytdl-core — pure Node.js, Vercel-ready
 
-const ytdl      = require('@distube/ytdl-core');
-const r2Storage = require('./r2Storage');
+const axios           = require('axios');
+const appleDownloader = require('./appleDownloader');
+const r2Storage       = require('./r2Storage');
 
 class EnhancedDownloaderService {
     constructor() {
-        // In-progress lock: videoId → Promise
-        // Prevents duplicate concurrent uploads for the same video
+        // Lock: cacheKey → Promise (cegah upload duplikat bersamaan)
         this.processing = new Map();
     }
 
     /**
-     * Main entry: get a permanent R2 URL for the given YouTube video ID.
-     * Flow:
-     *   1. Check R2 (cache) → return URL immediately if hit
-     *   2. Stream audio from YouTube via ytdl-core
-     *   3. Upload stream directly to R2 (no temp file, no full buffer)
-     *   4. Return permanent R2 URL
+     * Main entry — dipanggil dari downloadController.
      *
-     * @param {string} videoId
+     * @param {object} params
+     * @param {string} params.appleUrl   - Apple Music track URL
+     * @param {string} params.previewUrl - iTunes preview URL (fallback 30 detik)
+     * @param {string} params.trackId    - ID unik untuk cache key
+     * @param {string} [params.title]
+     * @param {string} [params.artist]
+     * @param {string} [params.thumbnail]
+     * @param {string} [params.duration]
      * @returns {Promise<{ url, title, artist, thumbnail, duration }>}
      */
-    async getStreamUrl(videoId) {
-        if (!videoId || !/^[a-zA-Z0-9_\-]{6,12}$/.test(videoId)) {
-            throw new Error('Invalid videoId format');
+    async getStreamUrl({ appleUrl, previewUrl, trackId, title, artist, thumbnail, duration }) {
+        if (!appleUrl && !previewUrl) {
+            throw new Error('appleUrl atau previewUrl diperlukan');
         }
 
-        const filename = r2Storage.buildFilename(videoId);
+        const cacheKey = trackId || this._makeKey(appleUrl);
+        const filename = r2Storage.buildFilename(cacheKey);
 
-        // ── 1. R2 cache check ────────────────────────────────────
+        // ── 1. Cek R2 cache dulu ─────────────────────────────────
         const cached = await r2Storage.fileExists(filename);
         if (cached) {
-            console.log('[downloader] R2 cache hit:', videoId);
-            const meta = await this._getMetadata(videoId);
-            return { url: cached, ...meta };
+            console.log('[downloader] R2 cache hit:', cacheKey);
+            return {
+                url:       cached,
+                title:     title     || 'Unknown',
+                artist:    artist    || 'Unknown',
+                thumbnail: thumbnail || null,
+                duration:  duration  || '0:00',
+            };
         }
 
-        // ── 2. Dedup: jika sedang diproses, tunggu ───────────────
-        if (this.processing.has(videoId)) {
-            console.log('[downloader] Waiting for in-flight upload:', videoId);
-            return this.processing.get(videoId);
+        // ── 2. Dedup: kalau sedang diproses, tunggu ──────────────
+        if (this.processing.has(cacheKey)) {
+            console.log('[downloader] Menunggu upload in-flight:', cacheKey);
+            return this.processing.get(cacheKey);
         }
 
-        const promise = this._downloadAndUpload(videoId, filename);
-        this.processing.set(videoId, promise);
+        const promise = this._downloadAndUpload({
+            appleUrl, previewUrl, cacheKey, filename,
+            title, artist, thumbnail, duration,
+        });
+        this.processing.set(cacheKey, promise);
 
         try {
             return await promise;
         } finally {
-            this.processing.delete(videoId);
+            this.processing.delete(cacheKey);
         }
     }
 
-    /**
-     * @private
-     */
-    async _downloadAndUpload(videoId, filename) {
-        const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    /** @private */
+    async _downloadAndUpload({ appleUrl, previewUrl, cacheKey, filename, title, artist, thumbnail, duration }) {
+        let mp3Url  = null;
+        let metaOut = { title, artist, thumbnail, duration };
 
-        console.log('[downloader] Fetching info:', videoId);
-
-        // Ambil info video (title, thumbnail, dll)
-        let info;
-        try {
-            info = await ytdl.getInfo(youtubeUrl);
-        } catch (err) {
-            throw new Error(`Gagal ambil info video: ${err.message}`);
+        // ── A. Coba nexray API dulu (full quality) ───────────────
+        if (appleUrl) {
+            try {
+                console.log('[downloader] Mencoba nexray untuk:', cacheKey);
+                const dlResult = await appleDownloader.download(appleUrl);
+                mp3Url = dlResult?.result?.download?.mp3 || null;
+                metaOut = {
+                    title:     dlResult?.result?.title    || title     || 'Unknown',
+                    artist:    dlResult?.result?.artist   || artist    || 'Unknown',
+                    thumbnail: dlResult?.result?.image    || thumbnail || null,
+                    duration:  dlResult?.result?.duration || duration  || '0:00',
+                };
+            } catch (err) {
+                console.warn('[downloader] nexray gagal, fallback ke previewUrl:', err.message);
+            }
         }
 
-        const videoDetails = info.videoDetails;
+        // ── B. Fallback: iTunes previewUrl (30 detik) ────────────
+        if (!mp3Url && previewUrl) {
+            console.log('[downloader] Pakai previewUrl sebagai fallback:', cacheKey);
+            mp3Url = previewUrl;
+        }
 
-        // Pilih format audio terbaik (prefer webm/opus atau mp4a)
-        const format = ytdl.chooseFormat(info.formats, {
-            quality:   'highestaudio',
-            filter:    'audioonly',
+        if (!mp3Url) {
+            throw new Error('Tidak bisa mendapatkan URL audio. Coba lagu lain.');
+        }
+
+        // ── C. Download ke buffer ────────────────────────────────
+        console.log('[downloader] Download buffer dari:', mp3Url.substring(0, 80));
+        const buffer = await this._downloadBuffer(mp3Url);
+
+        // ── D. Upload buffer ke R2 ───────────────────────────────
+        const r2Url = await r2Storage.uploadBuffer(buffer, filename);
+
+        console.log('[downloader] ✅ Selesai:', cacheKey, '→', r2Url.substring(0, 70));
+        return { url: r2Url, ...metaOut };
+    }
+
+    /** @private — Download URL → Buffer */
+    async _downloadBuffer(url) {
+        const response = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 60000,
+            maxContentLength: 50 * 1024 * 1024,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
         });
-
-        if (!format) {
-            throw new Error('Tidak ada format audio tersedia untuk video ini');
-        }
-
-        console.log(`[downloader] Streaming audio (${format.container}, ${format.audioBitrate}kbps):`, videoId);
-
-        // Buat stream dari ytdl
-        const audioStream = ytdl.downloadFromInfo(info, { format });
-
-        // Tangkap error stream sebelum mulai upload
-        let streamError = null;
-        audioStream.once('error', err => { streamError = err; });
-
-        // Upload stream langsung ke R2
-        let r2Url;
-        try {
-            r2Url = await r2Storage.uploadStream(audioStream, filename);
-        } catch (err) {
-            throw new Error(`Upload ke R2 gagal: ${streamError?.message || err.message}`);
-        }
-
-        const meta = {
-            title:     videoDetails.title     || 'Unknown',
-            artist:    videoDetails.author?.name || 'Unknown',
-            thumbnail: videoDetails.thumbnails?.at(-1)?.url || null,
-            duration:  this._secsToDuration(Number(videoDetails.lengthSeconds)),
-        };
-
-        console.log('[downloader] ✅ Done:', videoId, '→', r2Url.substring(0, 70));
-        return { url: r2Url, ...meta };
+        return Buffer.from(response.data);
     }
 
-    /**
-     * Ambil metadata saja (untuk cache hit) tanpa download audio.
-     * @private
-     */
-    async _getMetadata(videoId) {
-        try {
-            const info   = await ytdl.getBasicInfo(`https://www.youtube.com/watch?v=${videoId}`);
-            const detail = info.videoDetails;
-            return {
-                title:     detail.title           || 'Unknown',
-                artist:    detail.author?.name     || 'Unknown',
-                thumbnail: detail.thumbnails?.at(-1)?.url || null,
-                duration:  this._secsToDuration(Number(detail.lengthSeconds)),
-            };
-        } catch {
-            return { title: 'Unknown', artist: 'Unknown', thumbnail: null, duration: '0:00' };
-        }
-    }
-
-    /** Convert seconds → "m:ss" */
-    _secsToDuration(secs) {
-        if (!secs || isNaN(secs)) return '0:00';
-        const s = Math.floor(secs);
-        return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    /** @private — Buat cache key dari Apple Music URL */
+    _makeKey(url) {
+        const m = url?.match(/[?&]i=(\d+)/);
+        if (m) return `apple_${m[1]}`;
+        return 'apple_' + Buffer.from(url || String(Date.now()))
+            .toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
     }
 }
 
