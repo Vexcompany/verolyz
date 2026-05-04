@@ -7,6 +7,7 @@ const controller = require('../controllers/downloadController');
 
 // GET /api/stream?id=VIDEO_ID   — main stream/download endpoint
 router.get('/', controller.stream);
+router.post('/', controller.stream);
 
 // GET /api/stream/info?id=VIDEO_ID
 router.get('/info', controller.info);
