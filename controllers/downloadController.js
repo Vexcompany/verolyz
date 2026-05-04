@@ -1,98 +1,103 @@
 // controllers/downloadController.js
-// REFACTORED: Cloudflare R2 storage, no Supabase, no Catbox
-// New endpoint: GET /api/stream?id=VIDEO_ID
+// Flow: Apple Music URL → enhancedDownloader → R2 → return URL
 
 const enhancedDownloader = require('../services/enhancedDownloader');
 const r2Storage          = require('../services/r2Storage');
 const jsonDb             = require('../services/jsonDatabase');
 
 /**
- * GET /api/stream?id=VIDEO_ID
+ * POST /api/stream
+ * Body: { appleUrl, previewUrl, trackId, title, artist, thumbnail, duration }
  *
  * Flow:
- *   1. Validate videoId
- *   2. Check R2 cache via enhancedDownloader (which checks r2Storage.fileExists)
- *   3. If miss → yt-dlp stream → upload to R2
- *   4. Return permanent R2 URL to client
+ *   1. Validasi input
+ *   2. Cek R2 cache (via enhancedDownloader)
+ *   3. Kalau miss → nexray API → download buffer → upload ke R2
+ *   4. Return R2 URL permanen
  */
 exports.stream = async (req, res, next) => {
     try {
-        const { id: videoId } = req.query;
+        // Support GET dan POST
+        const body = req.method === 'POST' ? req.body : req.query;
 
-        if (!videoId || !/^[a-zA-Z0-9_\-]{6,12}$/.test(videoId)) {
+        const {
+            appleUrl,
+            previewUrl,
+            trackId,
+            title,
+            artist,
+            thumbnail,
+            duration,
+        } = body;
+
+        if (!appleUrl && !previewUrl) {
             return res.status(400).json({
                 status:  false,
-                message: 'Parameter id (YouTube video ID) diperlukan dan harus valid',
+                message: 'Parameter appleUrl atau previewUrl diperlukan',
             });
         }
 
-        console.log('[stream] Request for videoId:', videoId);
+        console.log('[stream] Request:', trackId || appleUrl?.substring(0, 60));
 
-        const result = await enhancedDownloader.getStreamUrl(videoId);
+        const result = await enhancedDownloader.getStreamUrl({
+            appleUrl,
+            previewUrl,
+            trackId,
+            title,
+            artist,
+            thumbnail,
+            duration,
+        });
 
-        // Update local JSON DB (best-effort, non-blocking)
+        // Simpan ke JSON DB (best-effort)
         jsonDb.saveTrack({
-            videoId,
+            videoId:   trackId || result.title,
             title:     result.title,
             artist:    result.artist,
             thumbnail: result.thumbnail,
             duration:  result.duration,
             r2Url:     result.url,
-        }).catch(e => console.warn('[stream] jsonDb save failed (non-fatal):', e.message));
+        }).catch(e => console.warn('[stream] jsonDb save failed:', e.message));
 
         return res.json({
             status: true,
             result: {
-                videoId,
+                trackId:   trackId || null,
                 title:     result.title,
                 artist:    result.artist,
                 thumbnail: result.thumbnail,
                 duration:  result.duration,
-                url:       result.url,       // permanent R2 URL
+                url:       result.url,
             },
         });
 
     } catch (error) {
         console.error('[stream] Error:', error.message);
-
-        // Distinguish between client errors and server errors
-        if (error.message.includes('Invalid videoId')) {
-            return res.status(400).json({ status: false, message: error.message });
-        }
-        if (error.message.includes('yt-dlp')) {
-            return res.status(502).json({
-                status:  false,
-                message: 'Gagal mengambil audio dari YouTube. Pastikan yt-dlp terinstall.',
-            });
-        }
-
-        next(error);
+        return res.status(502).json({
+            status:  false,
+            message: error.message || 'Gagal memproses audio',
+        });
     }
 };
 
 /**
- * GET /api/stream/info?id=VIDEO_ID
- * Returns metadata only (no download). Useful for UI pre-fill.
+ * GET /api/stream/info?trackId=xxx
+ * Cek apakah track sudah ada di R2 cache.
  */
 exports.info = async (req, res, next) => {
     try {
-        const { id: videoId } = req.query;
+        const { trackId } = req.query;
+        if (!trackId) return res.status(400).json({ status: false, message: 'trackId required' });
 
-        if (!videoId) {
-            return res.status(400).json({ status: false, message: 'id required' });
-        }
-
-        // Check if already cached in R2
-        const filename  = r2Storage.buildFilename(videoId);
+        const filename  = r2Storage.buildFilename(trackId);
         const cachedUrl = await r2Storage.fileExists(filename);
 
         return res.json({
             status: true,
-            videoId,
+            trackId,
             cached: !!cachedUrl,
             url:    cachedUrl || null,
         });
-
     } catch (error) {
         next(error);
     }
@@ -100,7 +105,6 @@ exports.info = async (req, res, next) => {
 
 /**
  * GET /api/stream/tracks
- * Returns all tracks saved in the local JSON database.
  */
 exports.getAllTracks = async (req, res, next) => {
     try {
@@ -114,13 +118,11 @@ exports.getAllTracks = async (req, res, next) => {
 
 /**
  * GET /api/stream/search?q=query
- * Search tracks in the local JSON database.
  */
 exports.searchLocal = async (req, res, next) => {
     try {
         const { q } = req.query;
         if (!q) return res.status(400).json({ status: false, message: 'q required' });
-
         const tracks = await jsonDb.searchTracks(q);
         return res.json({ status: true, data: tracks, total: tracks.length });
     } catch (error) {
