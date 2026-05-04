@@ -5,7 +5,7 @@ const express    = require('express');
 const router     = express.Router();
 const controller = require('../controllers/downloadController');
 
-// GET /api/stream?id=VIDEO_ID   — main stream/download endpoint
+// GET & POST /api/stream — main stream/download endpoint
 router.get('/', controller.stream);
 router.post('/', controller.stream);
 
