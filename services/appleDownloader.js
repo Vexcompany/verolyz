@@ -1,12 +1,12 @@
-// services/appleDownloader.js — REWRITE pakai nexray API
-// Ganti aplmate (scraping, tidak reliable) → nexray (REST API, reliable)
+// services/appleDownloader.js
 
 const axios = require('axios');
 
 class AppleDownloaderService {
 
     constructor() {
-        this.nexrayBase = 'https://api.nexray.web.id/downloader/applemusic';
+        this.cukiBase   = 'https://api.cuki.biz.id/api/downloader/musicapple';
+        this.cukiApiKey = process.env.CUKI_API_KEY || 'cuki-x';
     }
 
     async download(url) {
@@ -15,10 +15,13 @@ class AppleDownloaderService {
                 throw new Error('URL tidak valid. Harus menggunakan URL Apple Music.');
             }
 
-            console.log('[nexray] Processing:', url.substring(0, 80));
+            console.log('[cuki] Processing:', url.substring(0, 80));
 
-            const response = await axios.get(this.nexrayBase, {
-                params: { url },
+            const response = await axios.get(this.cukiBase, {
+                params: {
+                    apikey: this.cukiApiKey,
+                    url,
+                },
                 timeout: 30000,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -27,38 +30,40 @@ class AppleDownloaderService {
             });
 
             const data = response.data;
-            console.log('[nexray] Response keys:', Object.keys(data || {}));
+            console.log('[cuki] Response keys:', JSON.stringify(data).substring(0, 300));
 
-            // Normalisasi berbagai kemungkinan format response nexray
+            // Normalisasi berbagai kemungkinan format response
             const mp3Url = data?.result?.url
                         || data?.result?.download
                         || data?.result?.audio
                         || data?.result?.mp3
+                        || data?.result?.link
                         || data?.download?.url
                         || data?.download?.mp3
+                        || data?.download?.link
                         || data?.audio
                         || data?.url
                         || data?.mp3
+                        || data?.link
                         || null;
 
-            // Ambil metadata dari semua kemungkinan field nexray
-            const title  = data?.result?.title  || data?.result?.name
-                        || data?.title          || data?.name
-                        || data?.metadata?.title || null;
-            const artist = data?.result?.artist  || data?.result?.singer
-                        || data?.artist          || data?.singer
-                        || data?.result?.author  || data?.author
+            const title  = data?.result?.title    || data?.result?.name
+                        || data?.title            || data?.name
+                        || data?.metadata?.title  || null;
+            const artist = data?.result?.artist   || data?.result?.singer
+                        || data?.result?.author   || data?.artist
+                        || data?.singer           || data?.author
                         || data?.metadata?.artist || null;
-            const image  = data?.result?.image   || data?.result?.thumbnail
-                        || data?.result?.cover   || data?.result?.artwork
-                        || data?.image           || data?.thumbnail
-                        || data?.cover           || null;
+            const image  = data?.result?.image    || data?.result?.thumbnail
+                        || data?.result?.cover    || data?.result?.artwork
+                        || data?.image            || data?.thumbnail
+                        || data?.cover            || null;
             const duration = data?.result?.duration || data?.result?.length
                           || data?.duration         || data?.length || null;
 
             if (!mp3Url) {
-                console.error('[nexray] Full response:', JSON.stringify(data).substring(0, 300));
-                throw new Error('nexray tidak mengembalikan URL audio');
+                console.error('[cuki] Full response:', JSON.stringify(data).substring(0, 500));
+                throw new Error('cuki API tidak mengembalikan URL audio');
             }
 
             return {
@@ -77,9 +82,8 @@ class AppleDownloaderService {
             };
 
         } catch (err) {
-            // Kalau axios error (4xx/5xx), log response body untuk debug
             if (err.response) {
-                console.error('[nexray] HTTP', err.response.status, JSON.stringify(err.response.data).substring(0, 200));
+                console.error('[cuki] HTTP', err.response.status, JSON.stringify(err.response.data).substring(0, 200));
             }
             throw new Error(`Download failed: ${err.message}`);
         }
