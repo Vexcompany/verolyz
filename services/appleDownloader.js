@@ -30,36 +30,16 @@ class AppleDownloaderService {
             });
 
             const data = response.data;
-            console.log('[cuki] Response keys:', JSON.stringify(data).substring(0, 300));
+            console.log('[cuki] Response:', JSON.stringify(data).substring(0, 300));
 
-            // Normalisasi berbagai kemungkinan format response
-            const mp3Url = data?.result?.url
-                        || data?.result?.download
-                        || data?.result?.audio
-                        || data?.result?.mp3
-                        || data?.result?.link
-                        || data?.download?.url
-                        || data?.download?.mp3
-                        || data?.download?.link
-                        || data?.audio
-                        || data?.url
-                        || data?.mp3
-                        || data?.link
-                        || null;
+            // Format cuki: { success, data: { title, artist, cover, preview, download } }
+            const d = data?.data || data?.result || data;
 
-            const title  = data?.result?.title    || data?.result?.name
-                        || data?.title            || data?.name
-                        || data?.metadata?.title  || null;
-            const artist = data?.result?.artist   || data?.result?.singer
-                        || data?.result?.author   || data?.artist
-                        || data?.singer           || data?.author
-                        || data?.metadata?.artist || null;
-            const image  = data?.result?.image    || data?.result?.thumbnail
-                        || data?.result?.cover    || data?.result?.artwork
-                        || data?.image            || data?.thumbnail
-                        || data?.cover            || null;
-            const duration = data?.result?.duration || data?.result?.length
-                          || data?.duration         || data?.length || null;
+            const mp3Url   = d?.download || d?.mp3 || d?.audio || d?.url || d?.link || null;
+            const title    = d?.title    || d?.name    || null;
+            const artist   = d?.artist   || d?.singer  || null;
+            const image    = d?.cover    || d?.image   || d?.thumbnail || null;
+            const duration = d?.duration || d?.length  || null;
 
             if (!mp3Url) {
                 console.error('[cuki] Full response:', JSON.stringify(data).substring(0, 500));
