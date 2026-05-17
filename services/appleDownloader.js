@@ -1,103 +1,222 @@
-// services/appleDownloader.js — scraper aplmate.com
-// @creator AgungDevX, adapted for verolyz project
+// services/appleDownloader.js — 
 
-const axios   = require('axios');
-const cheerio = require('cheerio');
-const { zencf } = require('zencf');
+const axios    = require('axios');
+const cheerio  = require('cheerio');
+const FormData = require('form-data');
+const crypto   = require('crypto');
 
 class AppleDownloaderService {
 
-    async download(url) {
+    constructor() {
+        this.baseUrl = 'https://aaplmusicdownloader.com';
+        this.userAgents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ];
+    }
+
+    // ── Helpers ────────────────────────────────────────────────
+
+    _sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    _buildHeaders(cookies = '') {
+        const ua = this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
+        return {
+            'User-Agent':                ua,
+            'Accept':                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language':           'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding':           'gzip, deflate, br',
+            'Origin':                    this.baseUrl,
+            'Referer':                   `${this.baseUrl}/`,
+            'Sec-Ch-Ua':                 '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile':          '?0',
+            'Sec-Ch-Ua-Platform':        '"Linux"',
+            'Sec-Fetch-Dest':            'document',
+            'Sec-Fetch-Mode':            'navigate',
+            'Sec-Fetch-Site':            'same-origin',
+            'Sec-Fetch-User':            '?1',
+            'Upgrade-Insecure-Requests': '1',
+            ...(cookies ? { Cookie: cookies } : {}),
+        };
+    }
+
+    _parseCookies(headers, existing = {}) {
+        const setCookies = headers['set-cookie'];
+        if (!setCookies) return existing;
+        const result = { ...existing };
+        setCookies.forEach(c => {
+            const m = c.match(/([^=]+)=([^;]+)/);
+            if (m) result[m[1].trim()] = m[2].trim();
+        });
+        return result;
+    }
+
+    _cookieString(jar) {
+        return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    }
+
+    _initCookieJar() {
+        const phpsessid = crypto.randomBytes(16).toString('hex');
+        const gaId      = `GA1.1.${Math.floor(Math.random() * 1e9)}.${Math.floor(Date.now() / 1000)}`;
+        return { PHPSESSID: phpsessid, _ga: gaId };
+    }
+
+    // ── Step 1: ambil halaman utama (seed cookies) ─────────────
+
+    async _getInitialPage(jar) {
+        await this._sleep(2000);
+        const res = await axios.get(this.baseUrl, {
+            headers: this._buildHeaders(this._cookieString(jar)),
+            timeout: 15000,
+        });
+        return this._parseCookies(res.headers, jar);
+    }
+
+    // ── Step 2: POST ke /song.php — ambil meta lagu ────────────
+
+    async _searchSong(appleMusicUrl, jar) {
+        await this._sleep(3000);
+
+        // Ekstrak nama lagu dari URL Apple Music
+        const urlMatch = appleMusicUrl.match(/\/song\/([^/]+)\/(\d+)/);
+        const songName = urlMatch
+            ? decodeURIComponent(urlMatch[1].replace(/-/g, ' '))
+            : '';
+
+        const requestData = [songName, '', '', '', null, appleMusicUrl];
+
+        const form = new FormData();
+        form.append('data', JSON.stringify(requestData));
+
+        const res = await axios.post(`${this.baseUrl}/song.php`, form, {
+            headers: {
+                ...this._buildHeaders(this._cookieString(jar)),
+                ...form.getHeaders(),
+            },
+            timeout: 20000,
+            validateStatus: s => s === 200,
+        });
+
+        const newJar = this._parseCookies(res.headers, jar);
+        return { html: res.data, jar: newJar };
+    }
+
+    // ── Step 3: POST ke /api/composer/swd.php — dapat dlink ────
+
+    async _generateDownloadLink(trackName, artist, appleMusicUrl, quality, jar) {
+        await this._sleep(2000);
+
+        // Tambahkan cookie quality (umur 15 menit)
+        const qualityJar = { ...jar, quality };
+
+        const form = new FormData();
+        form.append('song_name',    trackName);
+        form.append('artist_name',  artist);
+        form.append('url',          appleMusicUrl);
+        form.append('token',        'none');
+        form.append('zip_download', 'false');
+        form.append('quality',      quality);
+
+        const res = await axios.post(`${this.baseUrl}/api/composer/swd.php`, form, {
+            headers: {
+                ...this._buildHeaders(this._cookieString(qualityJar)),
+                'X-Requested-With': 'XMLHttpRequest',
+                ...form.getHeaders(),
+            },
+            timeout: 30000,
+        });
+
+        return res.data; // { status: 'success', dlink: '...' }
+    }
+
+    // ── Step 4: resolve redirect → URL final ───────────────────
+
+    async _resolveFinalUrl(dlink, jar) {
+        await this._sleep(1000);
         try {
-            if (!this.isValidAppleMusicUrl(url)) {
-                throw new Error('URL tidak valid. Harus menggunakan URL Apple Music.');
+            const res = await axios.get(`${this.baseUrl}/api/composer/ffmpeg/redirect.php`, {
+                params:         { url: dlink },
+                headers:        this._buildHeaders(this._cookieString(jar)),
+                maxRedirects:   0,
+                validateStatus: s => s === 302 || s === 200,
+                timeout:        10000,
+            });
+            if (res.status === 302 && res.headers.location) {
+                return res.headers.location;
             }
-
-            console.log('[-] Nyobian bypass Turnstile...');
-
-            const { token } = await zencf.turnstileMin(
-                'https://aplmate.com/',
-                '0x4AAAAAABdqfzl6we62dQyp'
-            );
-
-            if (!token) throw new Error('Gagal meunangkeun token bypass!');
-            console.log('[+] Bypass Berhasil!');
-
-            const base = 'https://aplmate.com';
-            const headers = {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36',
-                'Origin':  base,
-                'Referer': base + '/'
-            };
-
-            // Ambil CSRF & Session
-            const home = await axios.get(base, { headers });
-            const $h = cheerio.load(home.data);
-            const csrfInput = $h("input[type='hidden']").filter((i, el) => $h(el).attr('name')?.startsWith('_'));
-            const csrfName  = csrfInput.attr('name');
-            const csrfValue = csrfInput.attr('value');
-            const session   = home.headers['set-cookie']?.[0]?.split(';')[0] || '';
-
-            // POST ke /action
-            const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
-            let formData  = `--${boundary}\r\nContent-Disposition: form-data; name="url"\r\n\r\n${url}\r\n`;
-            formData     += `--${boundary}\r\nContent-Disposition: form-data; name="${csrfName}"\r\n\r\n${csrfValue}\r\n`;
-            formData     += `--${boundary}\r\nContent-Disposition: form-data; name="cf-turnstile-response"\r\n\r\n${token}\r\n--${boundary}--\r\n`;
-
-            const action = await axios.post(`${base}/action`, formData, {
-                headers: {
-                    ...headers,
-                    'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                    'Cookie': session
-                }
-            });
-
-            const $res = cheerio.load(action.data.html || action.data);
-            const trackData = {
-                data:  $res("input[name='data']").attr('value'),
-                base:  $res("input[name='base']").attr('value'),
-                token: $res("input[name='token']").attr('value')
-            };
-
-            if (!trackData.data) throw new Error('Data track teu kapanggih dina response!');
-
-            // POST ke /action/track
-            const tBoundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
-            let tForm  = `--${tBoundary}\r\nContent-Disposition: form-data; name="data"\r\n\r\n${trackData.data}\r\n`;
-            tForm     += `--${tBoundary}\r\nContent-Disposition: form-data; name="base"\r\n\r\n${trackData.base}\r\n`;
-            tForm     += `--${tBoundary}\r\nContent-Disposition: form-data; name="token"\r\n\r\n${trackData.token}\r\n--${tBoundary}--\r\n`;
-
-            const final = await axios.post(`${base}/action/track`, tForm, {
-                headers: {
-                    ...headers,
-                    'Content-Type': `multipart/form-data; boundary=${tBoundary}`,
-                    'Cookie': session
-                }
-            });
-
-            const $f = cheerio.load(final.data.data || final.data);
-
-            return {
-                status: true,
-                result: {
-                    title:  $res('.aplmate-downloader-middle h3 div').text().trim(),
-                    artist: $res('.aplmate-downloader-middle p span').text().trim(),
-                    image:  $res('.aplmate-downloader-left img').attr('src'),
-                    download: {
-                        mp3:   base + $f("a:contains('Download Mp3')").attr('href'),
-                        cover: base + $f("a:contains('Download Cover')").attr('href')
-                    }
-                }
-            };
-
         } catch (err) {
-            throw new Error(`Download failed: ${err.message}`);
+            // Abaikan — pakai dlink asli sebagai fallback
         }
+        return dlink;
+    }
+
+    // ── Public API — cocok dengan interface appleDownloader lama ─
+
+    /**
+     * Download info + link audio dari Apple Music URL.
+     *
+     * @param {string} url   - Apple Music track URL
+     * @param {string} [quality='256'] - '64'|'128'|'192'|'256'|'320'|'m4a'
+     * @returns {Promise<{ status: true, result: { title, artist, image, download: { mp3, cover } } }>}
+     */
+    async download(url, quality = '256') {
+        if (!this.isValidAppleMusicUrl(url)) {
+            throw new Error('URL tidak valid. Harus menggunakan URL Apple Music.');
+        }
+
+        // 1. Init sesi
+        let jar = this._initCookieJar();
+
+        // 2. Seed cookies
+        jar = await this._getInitialPage(jar);
+
+        // 3. Scrape metadata lagu
+        const { html, jar: jar2 } = await this._searchSong(url, jar);
+        jar = jar2;
+
+        const $ = cheerio.load(html);
+        const title     = $('h2').first().text().trim().replace(/[^\w\s]/g, '').trim();
+        const artistRaw = $('.media-info p').first().text().trim();
+        const artist    = artistRaw.split('|')[0].replace(/[^\w\s]/g, '').trim();
+        const image     = $('meta[property="og:image"]').attr('content')
+                       || $('.image.is-square img').attr('src')
+                       || null;
+
+        if (!title) {
+            throw new Error('Gagal mengambil metadata lagu dari aaplmusicdownloader.com');
+        }
+
+        // 4. Generate download link
+        const dlResult = await this._generateDownloadLink(title, artist, url, quality, jar);
+
+        if (dlResult?.status !== 'success' || !dlResult?.dlink) {
+            throw new Error(`Gagal mendapatkan link download (quality: ${quality})`);
+        }
+
+        // 5. Resolve redirect → URL final
+        const mp3Url = await this._resolveFinalUrl(dlResult.dlink, jar);
+
+        return {
+            status: true,
+            result: {
+                title,
+                artist,
+                image,
+                download: {
+                    mp3:   mp3Url,
+                    cover: image || null,
+                },
+            },
+        };
     }
 
     isValidAppleMusicUrl(url) {
-        return url.includes('music.apple.com') &&
-               (url.includes('/album/') || url.includes('/song/'));
+        return typeof url === 'string'
+            && url.includes('music.apple.com')
+            && (url.includes('/album/') || url.includes('/song/'));
     }
 }
 
