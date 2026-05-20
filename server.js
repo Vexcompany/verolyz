@@ -14,12 +14,14 @@ app.use(express.urlencoded({ extended: true }));
 // ── Routes ───────────────────────────────────────────────────────
 const searchRoutes   = require('./routes/search');
 const streamRoutes   = require('./routes/stream');
+const karaokeRoutes = require('./routes/karaoke');
 
 // Search: GET /api/apple-search?q=
 app.use('/api/apple-search', searchRoutes);
 
 // Stream / Download via R2: GET /api/stream?id=VIDEO_ID
 app.use('/api/stream', streamRoutes);
+app.use('/api/karaoke', karaokeRoutes);
 
 // ── Health Check ─────────────────────────────────────────────────
 app.get('/', (req, res) => {
