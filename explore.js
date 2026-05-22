@@ -6,7 +6,7 @@
 
 // ── Backend base URL ─────────────────────────────────────────────
 // Change this to your deployed backend URL in production.
-const BACKEND_URL = window.BACKEND_URL || 'https://your-backend.onrender.com';
+const BACKEND_URL = window.BACKEND_URL || 'https://verolyz-kingdom3.vercel.app';
 
 // ════════════════════════════════════════════════════════════════
 //  STREAM HELPER — replaces old apple-download / catbox logic
