@@ -1,10 +1,10 @@
 // services/enhancedDownloader.js
-// Flow: Apple Music URL → nexray API → mp3 buffer → Cloudflare R2
-// Tidak pakai yt-dlp, tidak pakai ytdl-core — pure Node.js, Vercel-ready
+// Flow: Apple Music URL → downloaderBalancer (Nexray ↔ Theresav) → R2
+// Load balancing: round-robin per request, retry 1x, lalu fallback ke API lain.
 
-const axios           = require('axios');
-const appleDownloader = require('./appleDownloader');
-const r2Storage       = require('./r2Storage');
+const axios            = require('axios');
+const downloaderBalancer = require('./downloaderBalancer');
+const r2Storage        = require('./r2Storage');
 
 class EnhancedDownloaderService {
     constructor() {
@@ -23,7 +23,7 @@ class EnhancedDownloaderService {
      * @param {string} [params.artist]
      * @param {string} [params.thumbnail]
      * @param {string} [params.duration]
-     * @returns {Promise<{ url, title, artist, thumbnail, duration }>}
+     * @returns {Promise<{ url, title, artist, thumbnail, duration, source }>}
      */
     async getStreamUrl({ appleUrl, previewUrl, trackId, title, artist, thumbnail, duration }) {
         if (!appleUrl && !previewUrl) {
@@ -43,6 +43,7 @@ class EnhancedDownloaderService {
                 artist:    artist    || null,
                 thumbnail: thumbnail || null,
                 duration:  duration  || '0:00',
+                source:    'r2_cache',
             };
         }
 
@@ -69,43 +70,46 @@ class EnhancedDownloaderService {
     async _downloadAndUpload({ appleUrl, previewUrl, cacheKey, filename, title, artist, thumbnail, duration }) {
         let mp3Url  = null;
         let metaOut = { title, artist, thumbnail, duration };
+        let source  = 'preview';
 
-        // ── A. Coba nexray API dulu (full quality) ───────────────
+        // ── A. Coba balancer (Nexray ↔ Theresav, round-robin + retry) ────────
         if (appleUrl) {
             try {
-                console.log('[downloader] Mencoba nexray untuk:', cacheKey);
-                const dlResult = await appleDownloader.download(appleUrl);
-                mp3Url = dlResult?.result?.download?.mp3 || null;
+                console.log('[downloader] Menggunakan balancer untuk:', cacheKey);
+                const dlResult = await downloaderBalancer.download(appleUrl);
+                mp3Url = dlResult.mp3;
                 metaOut = {
-                    title:     dlResult?.result?.title    || title     || null,
-                    artist:    dlResult?.result?.artist   || artist    || null,
-                    thumbnail: dlResult?.result?.image    || thumbnail || null,
-                    duration:  dlResult?.result?.duration || duration  || '0:00',
+                    title:     dlResult.title     || title     || null,
+                    artist:    dlResult.artist    || artist    || null,
+                    thumbnail: dlResult.thumbnail || thumbnail || null,
+                    duration:  dlResult.duration  || duration  || '0:00',
                 };
+                source = 'balancer';
             } catch (err) {
-                console.warn('[downloader] nexray gagal, fallback ke previewUrl:', err.message);
+                console.warn('[downloader] Semua downloader gagal, fallback ke previewUrl:', err.message);
             }
         }
 
-        // ── B. Fallback: iTunes previewUrl (30 detik) ────────────
+        // ── B. Fallback: iTunes previewUrl (30 detik) ─────────────────────────
         if (!mp3Url && previewUrl) {
             console.log('[downloader] Pakai previewUrl sebagai fallback:', cacheKey);
             mp3Url = previewUrl;
+            source = 'preview';
         }
 
         if (!mp3Url) {
             throw new Error('Tidak bisa mendapatkan URL audio. Coba lagu lain.');
         }
 
-        // ── C. Download ke buffer ────────────────────────────────
+        // ── C. Download ke buffer ──────────────────────────────────────────────
         console.log('[downloader] Download buffer dari:', mp3Url.substring(0, 80));
         const buffer = await this._downloadBuffer(mp3Url);
 
-        // ── D. Upload buffer ke R2 ───────────────────────────────
+        // ── D. Upload buffer ke R2 ─────────────────────────────────────────────
         const r2Url = await r2Storage.uploadBuffer(buffer, filename);
 
-        console.log('[downloader] ✅ Selesai:', cacheKey, '→', r2Url.substring(0, 70));
-        return { url: r2Url, ...metaOut };
+        console.log(`[downloader] ✅ Selesai (${source}):`, cacheKey, '→', r2Url.substring(0, 70));
+        return { url: r2Url, ...metaOut, source };
     }
 
     /** @private — Download URL → Buffer */
