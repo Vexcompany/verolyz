@@ -1,34 +1,19 @@
 // controllers/downloadController.js
-// Flow: Apple Music URL → enhancedDownloader → R2 → return URL
+// Flow: Apple Music URL → downloaderBalancer (Nexray↔Theresav) → R2 → return URL
 
 const enhancedDownloader = require('../services/enhancedDownloader');
+const downloaderBalancer = require('../services/downloaderBalancer');
 const r2Storage          = require('../services/r2Storage');
 const jsonDb             = require('../services/jsonDatabase');
 
 /**
  * POST /api/stream
  * Body: { appleUrl, previewUrl, trackId, title, artist, thumbnail, duration }
- *
- * Flow:
- *   1. Validasi input
- *   2. Cek R2 cache (via enhancedDownloader)
- *   3. Kalau miss → nexray API → download buffer → upload ke R2
- *   4. Return R2 URL permanen
  */
 exports.stream = async (req, res, next) => {
     try {
-        // Support GET dan POST
         const body = req.method === 'POST' ? req.body : req.query;
-
-        const {
-            appleUrl,
-            previewUrl,
-            trackId,
-            title,
-            artist,
-            thumbnail,
-            duration,
-        } = body;
+        const { appleUrl, previewUrl, trackId, title, artist, thumbnail, duration } = body;
 
         if (!appleUrl && !previewUrl) {
             return res.status(400).json({
@@ -40,16 +25,9 @@ exports.stream = async (req, res, next) => {
         console.log('[stream] Request:', trackId || appleUrl?.substring(0, 60));
 
         const result = await enhancedDownloader.getStreamUrl({
-            appleUrl,
-            previewUrl,
-            trackId,
-            title,
-            artist,
-            thumbnail,
-            duration,
+            appleUrl, previewUrl, trackId, title, artist, thumbnail, duration,
         });
 
-        // Simpan ke JSON DB (best-effort)
         jsonDb.saveTrack({
             videoId:   trackId || result.title,
             title:     result.title,
@@ -68,6 +46,7 @@ exports.stream = async (req, res, next) => {
                 thumbnail: result.thumbnail,
                 duration:  result.duration,
                 url:       result.url,
+                source:    result.source || null,
             },
         });
 
@@ -82,22 +61,14 @@ exports.stream = async (req, res, next) => {
 
 /**
  * GET /api/stream/info?trackId=xxx
- * Cek apakah track sudah ada di R2 cache.
  */
 exports.info = async (req, res, next) => {
     try {
         const { trackId } = req.query;
         if (!trackId) return res.status(400).json({ status: false, message: 'trackId required' });
-
         const filename  = r2Storage.buildFilename(trackId);
         const cachedUrl = await r2Storage.fileExists(filename);
-
-        return res.json({
-            status: true,
-            trackId,
-            cached: !!cachedUrl,
-            url:    cachedUrl || null,
-        });
+        return res.json({ status: true, trackId, cached: !!cachedUrl, url: cachedUrl || null });
     } catch (error) {
         next(error);
     }
@@ -128,4 +99,15 @@ exports.searchLocal = async (req, res, next) => {
     } catch (error) {
         next(error);
     }
+};
+
+/**
+ * GET /api/stream/balancer-status
+ * Cek status round-robin balancer (untuk debugging/monitoring).
+ */
+exports.balancerStatus = async (req, res) => {
+    return res.json({
+        status: true,
+        balancer: downloaderBalancer.getStatus(),
+    });
 };
