@@ -1,21 +1,13 @@
 // routes/stream.js
-// Maps /api/stream/* to downloadController
-
 const express    = require('express');
 const router     = express.Router();
 const controller = require('../controllers/downloadController');
 
-// GET & POST /api/stream — main stream/download endpoint
-router.get('/', controller.stream);
-router.post('/', controller.stream);
-
-// GET /api/stream/info?id=VIDEO_ID
-router.get('/info', controller.info);
-
-// GET /api/stream/tracks
-router.get('/tracks', controller.getAllTracks);
-
-// GET /api/stream/search?q=query
-router.get('/search', controller.searchLocal);
+router.get('/',                controller.stream);
+router.post('/',               controller.stream);
+router.get('/info',            controller.info);
+router.get('/tracks',          controller.getAllTracks);
+router.get('/search',          controller.searchLocal);
+router.get('/balancer-status', controller.balancerStatus);
 
 module.exports = router;
