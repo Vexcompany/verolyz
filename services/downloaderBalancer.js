@@ -39,7 +39,8 @@ const APIS = {
     timeout: 65000,
     call: async (appleUrl) => {
       // Theresav: GET dengan query param url + apikey
-      const apikey = process.env.THERESAV_API_KEY || 'FKbI4';
+      const apikey = process.env.THERESAV_API_KEY;
+      if (!apikey) throw new Error('THERESAV_API_KEY env var tidak di-set di Vercel');
       const res = await axios.get('https://api.theresav.biz.id/download/applemusic', {
         params:  { url: appleUrl, apikey },
         timeout: 65000,
