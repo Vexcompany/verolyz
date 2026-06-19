@@ -1,72 +1,142 @@
 // api/upload-avatar.js — Vercel Serverless Function
-// Upload foto profil user ke Cloudflare R2
-// Env vars yang dibutuhkan di Vercel Dashboard (verolyz-main):
-//   R2_ENDPOINT   = https://<account_id>.r2.cloudflarestorage.com
-//   R2_BUCKET     = <nama_bucket_kamu>
-//   R2_ACCESS_KEY = <access_key_id>
-//   R2_SECRET_KEY = <secret_access_key>
-//   R2_PUBLIC_URL = https://<custom_domain_atau_r2_dev_url>  (tanpa trailing slash)
+// Upload foto profil ke Cloudflare R2 via S3-compatible REST API
+// TANPA dependency eksternal — hanya pakai Web Crypto API (built-in Node.js 18+)
+//
+// Env vars di Vercel Dashboard (backend repo verolyz-kingdom3):
+//   R2_ENDPOINT   = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+//   R2_BUCKET     = <nama_bucket>
+//   R2_ACCESS_KEY = <R2_Access_Key_ID>
+//   R2_SECRET_KEY = <R2_Secret_Access_Key>
+//   R2_PUBLIC_URL = https://<domain_publik> (tanpa trailing slash)
 
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-
+import { createHmac, createHash } from 'node:crypto';
 export const config = {
-  api: { bodyParser: { sizeLimit: '3mb' } }
+  api: { bodyParser: { sizeLimit: '4mb' } }
 };
 
-const s3 = new S3Client({
-  region: 'auto',
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId:     process.env.R2_ACCESS_KEY,
-    secretAccessKey: process.env.R2_SECRET_KEY,
-  },
-});
+// ── AWS Signature V4 (pure Node.js crypto) ─────────────────
 
+function sha256hex(data) {
+  return createHash('sha256').update(data).digest('hex');
+}
+function hmacSha256(key, data) {
+  return createHmac('sha256', key).update(data).digest();
+}
+function getSigningKey(secretKey, date, region, service) {
+  const kDate    = hmacSha256('AWS4' + secretKey, date);
+  const kRegion  = hmacSha256(kDate, region);
+  const kService = hmacSha256(kRegion, service);
+  return hmacSha256(kService, 'aws4_request');
+}
+
+async function putObjectR2({ endpoint, bucket, accessKey, secretKey, key, body, contentType }) {
+  const region  = 'auto';
+  const service = 's3';
+  const now     = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '').slice(0, 15) + 'Z'; // YYYYMMDDTHHmmssZ
+  const dateStr = amzDate.slice(0, 8); // YYYYMMDD
+
+  const host        = new URL(endpoint).host;
+  const url         = `${endpoint}/${bucket}/${key}`;
+  const payloadHash = sha256hex(body);
+
+  // Canonical headers (sorted alphabetically)
+  const canonicalHeaders =
+    `content-type:${contentType}\n` +
+    `host:${host}\n` +
+    `x-amz-content-sha256:${payloadHash}\n` +
+    `x-amz-date:${amzDate}\n`;
+
+  const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+
+  const canonicalRequest = [
+    'PUT',
+    `/${bucket}/${key}`,
+    '',                  // query string
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join('\n');
+
+  const credScope   = `${dateStr}/${region}/${service}/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, sha256hex(canonicalRequest)].join('\n');
+
+  const signingKey  = getSigningKey(secretKey, dateStr, region, service);
+  const signature   = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${accessKey}/${credScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type':          contentType,
+      'x-amz-date':            amzDate,
+      'x-amz-content-sha256':  payloadHash,
+      'Authorization':          authorization,
+      'Cache-Control':          'public, max-age=31536000',
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`R2 PUT failed ${res.status}: ${txt.slice(0, 200)}`);
+  }
+}
+
+// ── Handler ─────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'POST')   return res.status(405).json({ error: 'Method not allowed' });
 
   const { imageBase64, mimeType, userKey } = req.body || {};
 
   if (!imageBase64 || !mimeType || !userKey) {
-    return res.status(400).json({ error: 'imageBase64, mimeType, dan userKey wajib diisi' });
+    return res.status(400).json({ error: 'imageBase64, mimeType, userKey wajib diisi' });
   }
-
-  // Validasi mime type
   const allowed = ['image/jpeg', 'image/png', 'image/webp'];
   if (!allowed.includes(mimeType)) {
     return res.status(400).json({ error: 'Format harus jpg, png, atau webp' });
   }
+  if (imageBase64.length > 3_000_000) {
+    return res.status(400).json({ error: 'Foto terlalu besar, maksimal ~2MB' });
+  }
 
-  // Validasi ukuran base64 (max ~2MB decoded)
-  if (imageBase64.length > 2_800_000) {
-    return res.status(400).json({ error: 'Ukuran foto maksimal 2MB' });
+  const R2_ENDPOINT   = process.env.R2_ENDPOINT;
+  const R2_BUCKET     = process.env.R2_BUCKET;
+  const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY;
+  const R2_SECRET_KEY = process.env.R2_SECRET_KEY;
+  const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL;
+
+  // Debug: pastikan env vars ada
+  if (!R2_ENDPOINT || !R2_BUCKET || !R2_ACCESS_KEY || !R2_SECRET_KEY || !R2_PUBLIC_URL) {
+    const missing = ['R2_ENDPOINT','R2_BUCKET','R2_ACCESS_KEY','R2_SECRET_KEY','R2_PUBLIC_URL']
+      .filter(k => !process.env[k]);
+    return res.status(500).json({ error: 'Env var tidak lengkap', missing });
   }
 
   try {
     const buffer   = Buffer.from(imageBase64, 'base64');
-    const ext      = mimeType.split('/')[1].replace('jpeg', 'jpg');
-    // Slug user_key jadi aman untuk filename
+    const ext      = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
     const safeKey  = userKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
     const filename = `avatars/${safeKey}_${Date.now()}.${ext}`;
 
-    await s3.send(new PutObjectCommand({
-      Bucket:      process.env.R2_BUCKET,
-      Key:         filename,
-      Body:        buffer,
-      ContentType: mimeType,
-      // Cache 1 tahun — avatar jarang berubah
-      CacheControl: 'public, max-age=31536000',
-    }));
+    await putObjectR2({
+      endpoint:    R2_ENDPOINT,
+      bucket:      R2_BUCKET,
+      accessKey:   R2_ACCESS_KEY,
+      secretKey:   R2_SECRET_KEY,
+      key:         filename,
+      body:        buffer,
+      contentType: mimeType,
+    });
 
-    const publicUrl = `${process.env.R2_PUBLIC_URL}/${filename}`;
+    const publicUrl = `${R2_PUBLIC_URL}/${filename}`;
     return res.status(200).json({ url: publicUrl });
 
   } catch (err) {
