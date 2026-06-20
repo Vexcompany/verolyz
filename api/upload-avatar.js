@@ -4,10 +4,11 @@
 //
 // Env vars di Vercel Dashboard (backend repo verolyz-kingdom3):
 //   R2_ENDPOINT   = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-//   R2_BUCKET     = <nama_bucket>
-//   R2_ACCESS_KEY = <R2_Access_Key_ID>
-//   R2_SECRET_KEY = <R2_Secret_Access_Key>
+//   R2_BUCKET_NAME     = <nama_bucket>
+//   R2_ACCESS_KEY_ID = <R2_Access_Key_ID>
+//   R2_SECRET_ACCESS_KEY = <R2_Secret_Access_Key>
 //   R2_PUBLIC_URL = https://<domain_publik> (tanpa trailing slash)
+//                   HARUS domain kustom atau *.r2.dev — BUKAN *.workers.dev
 
 import { createHmac, createHash } from 'node:crypto';
 export const config = {
@@ -33,14 +34,13 @@ async function putObjectR2({ endpoint, bucket, accessKey, secretKey, key, body, 
   const region  = 'auto';
   const service = 's3';
   const now     = new Date();
-  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '').slice(0, 15) + 'Z'; // YYYYMMDDTHHmmssZ
-  const dateStr = amzDate.slice(0, 8); // YYYYMMDD
+  const amzDate = now.toISOString().replace(/[:-]|\\.\\d{3}/g, '').slice(0, 15) + 'Z';
+  const dateStr = amzDate.slice(0, 8);
 
   const host        = new URL(endpoint).host;
   const url         = `${endpoint}/${bucket}/${key}`;
   const payloadHash = sha256hex(body);
 
-  // Canonical headers (sorted alphabetically)
   const canonicalHeaders =
     `content-type:${contentType}\n` +
     `host:${host}\n` +
@@ -52,7 +52,7 @@ async function putObjectR2({ endpoint, bucket, accessKey, secretKey, key, body, 
   const canonicalRequest = [
     'PUT',
     `/${bucket}/${key}`,
-    '',                  // query string
+    '',
     canonicalHeaders,
     signedHeaders,
     payloadHash,
@@ -113,11 +113,21 @@ export default async function handler(req, res) {
   const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
   const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL;
 
-  // Debug: pastikan env vars ada
+  // Validasi env vars lengkap
   if (!R2_ENDPOINT || !R2_BUCKET || !R2_ACCESS_KEY || !R2_SECRET_KEY || !R2_PUBLIC_URL) {
     const missing = ['R2_ENDPOINT','R2_BUCKET_NAME','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_PUBLIC_URL']
       .filter(k => !process.env[k]);
     return res.status(500).json({ error: 'Env var tidak lengkap', missing });
+  }
+
+  // ── BUG FIX: Tolak jika R2_PUBLIC_URL masih mengarah ke Cloudflare Worker (workers.dev)
+  // R2_PUBLIC_URL harus berupa domain publik R2 kustom atau *.r2.dev — bukan *.workers.dev
+  if (R2_PUBLIC_URL.includes('workers.dev')) {
+    return res.status(500).json({
+      error: 'R2_PUBLIC_URL salah konfigurasi — mengarah ke Cloudflare Worker (workers.dev). ' +
+             'Ganti dengan domain publik R2 kamu di Vercel Dashboard. ' +
+             'Contoh: https://assets.pagaska.my.id atau https://pub-xxxx.r2.dev'
+    });
   }
 
   try {
