@@ -4,11 +4,11 @@
   "buildCommand": "npm install",
   "outputDirectory": "./",
   "env": {
-    "MONGODB_URI": "@mongodb_uri",
-    "VAPID_PUBLIC_KEY": "@vapid_public_key",
-    "VAPID_PRIVATE_KEY": "@vapid_private_key",
-    "VAPID_SUBJECT": "@vapid_subject",
-    "ADMIN_TOKEN": "@admin_token",
+    "MONGODB_URI": "@MONGODB_URI",
+    "VAPID_PUBLIC_KEY": "@VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY": "@VAPID_PRIVATE_KEY",
+    "VAPID_SUBJECT": "@VAPID_SUBJECT",
+    "ADMIN_TOKEN": "@ADMIN_TOKEN",
     "NODE_ENV": "production"
   },
   "functions": {
