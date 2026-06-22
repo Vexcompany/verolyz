@@ -1,22 +1,24 @@
 {
-  "name": "spotif-backend",
+  "name": "pagaska-music-backend",
   "version": "1.0.0",
-  "description": "Pagaska Music Backend — Notifications + Vercel",
+  "description": "Pagaska Music Backend — Search + Stream + Notifications",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js",
     "dev": "nodemon api/index.js"
   },
-  "keywords": ["music", "pagaska", "notifications", "express", "vercel"],
-  "author": "Vex",
-  "license": "MIT",
   "engines": {
     "node": "20.x"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.400.0",
+    "@aws-sdk/s3-request-presigner": "^3.400.0",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "form-data": "^4.0.0",
     "mongoose": "^7.0.0",
     "web-push": "^3.6.6"
   },
