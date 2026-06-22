@@ -3,7 +3,6 @@
  * MAIN HANDLER untuk Pagaska Music Backend
  * - Combines: Express app + Routes + MongoDB + Notifications
  * - Export handler agar Vercel bisa execute sebagai function
- * - JANGAN gunakan app.listen() di Vercel
  */
 
 import express from 'express';
@@ -39,6 +38,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 //  MONGODB CONNECTION
 // ════════════════════════════════════════════════════════════════
 
+// ✅ Pakai UPPERCASE: process.env.MONGODB_URI (BUKAN mongodb_uri)
 if (process.env.MONGODB_URI) {
   mongoose.connect(process.env.MONGODB_URI, {
     maxPoolSize: 10,
@@ -64,7 +64,15 @@ app.get('/api/health', (req, res) => {
     message: 'Pagaska Music Backend 🎵 is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'unknown',
-    vercel: !!process.env.VERCEL
+    vercel: !!process.env.VERCEL,
+    // DEBUG: Tampilkan env vars yang loaded (hapus di production untuk security)
+    debug: {
+      hasMongoDBURI: !!process.env.MONGODB_URI,
+      hasVapidPublicKey: !!process.env.VAPID_PUBLIC_KEY,
+      hasVapidPrivateKey: !!process.env.VAPID_PRIVATE_KEY,
+      hasVapidSubject: !!process.env.VAPID_SUBJECT,
+      hasAdminToken: !!process.env.ADMIN_TOKEN,
+    }
   });
 });
 
@@ -118,7 +126,7 @@ export default app;
 //  LOCAL DEVELOPMENT: Listen hanya jika bukan Vercel
 // ════════════════════════════════════════════════════════════════
 
-if (!process.env.VERCEL && !process.env.VERCEL_ENV) {
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
     console.log(`
@@ -127,6 +135,13 @@ if (!process.env.VERCEL && !process.env.VERCEL_ENV) {
     🏥 Health: http://localhost:${PORT}/api/health
     📦 Node: ${process.version}
     🔧 Environment: ${process.env.NODE_ENV || 'development'}
+    
+    📋 Environment Variables:
+       MONGODB_URI: ${process.env.MONGODB_URI ? '✓ Set' : '✗ Not set'}
+       VAPID_PUBLIC_KEY: ${process.env.VAPID_PUBLIC_KEY ? '✓ Set' : '✗ Not set'}
+       VAPID_PRIVATE_KEY: ${process.env.VAPID_PRIVATE_KEY ? '✓ Set' : '✗ Not set'}
+       VAPID_SUBJECT: ${process.env.VAPID_SUBJECT ? '✓ Set' : '✗ Not set'}
+       ADMIN_TOKEN: ${process.env.ADMIN_TOKEN ? '✓ Set' : '✗ Not set'}
     `);
   });
 }
