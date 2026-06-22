@@ -21,7 +21,7 @@ const app = express();
 
 app.use(cors({
   origin: [
-    'https://spotif-main.vercel.app',
+    'https://music.pagaska.my.id',
     'http://localhost:3000',
     'http://localhost:5173',
     '*'  // Fallback untuk development — HAPUS di production
