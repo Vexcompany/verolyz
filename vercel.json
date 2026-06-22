@@ -3,9 +3,6 @@
   "name": "pagaska-music-backend",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30
-    },
-    "api/server.js": {
       "maxDuration": 60
     },
     "api/upload-avatar.js": {
@@ -14,34 +11,12 @@
   },
   "routes": [
     {
-      "src": "/api/notifications(.*)",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/api/health",
-      "dest": "/api/index.js"
-    },
-    {
       "src": "/api/upload-avatar",
       "dest": "/api/upload-avatar.js"
     },
     {
-      "src": "/api/(.*)",
-      "dest": "/api/server.js"
-    },
-    {
-      "src": "/",
-      "dest": "/api/server.js"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin",  "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS, PATCH" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With" }
-      ]
+      "src": "/(.*)",
+      "dest": "/api/index.js"
     }
   ]
 }
