@@ -1,25 +1,12 @@
 {
   "version": 2,
-  "name": "spotif-backend",
+  "name": "pagaska-music-backend",
+  "framework": null,
   "buildCommand": "npm install",
-  "outputDirectory": "./",
-  "env": {
-    "MONGODB_URI": "MONGODB_URI",
-    "VAPID_PUBLIC_KEY": "VAPID_PUBLIC_KEY",
-    "VAPID_PRIVATE_KEY": "VAPID_PRIVATE_KEY",
-    "VAPID_SUBJECT": "VAPID_SUBJECT",
-    "ADMIN_TOKEN": "ADMIN_TOKEN",
-    "NODE_ENV": "production"
-  },
   "functions": {
     "api/index.js": {
       "memory": 1024,
       "maxDuration": 60,
-      "runtime": "nodejs20.x"
-    },
-    "api/upload-avatar.js": {
-      "memory": 512,
-      "maxDuration": 30,
       "runtime": "nodejs20.x"
     }
   },
@@ -31,8 +18,7 @@
     },
     {
       "src": "/",
-      "status": 404,
-      "dest": "/api/health"
+      "dest": "/api/index.js"
     }
   ],
   "headers": [
@@ -50,10 +36,6 @@
         {
           "key": "Access-Control-Allow-Headers",
           "value": "Content-Type,Authorization,X-Requested-With"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "private, no-cache, no-store, must-revalidate"
         }
       ]
     }
