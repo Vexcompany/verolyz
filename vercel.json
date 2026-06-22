@@ -1,41 +1,115 @@
 {
   "version": 2,
-  "name": "pagaska-music-backend",
+  "name": "pagaska-music-frontend",
   "framework": null,
-  "buildCommand": "npm install",
-  "functions": {
-    "api/index.js": {
-      "memory": 1024,
-      "maxDuration": 60,
-      "runtime": "nodejs20.x"
-    }
-  },
-  "routes": [
+  "outputDirectory": ".",
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js",
-      "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+      "source": "/",
+      "destination": "/dashboard.html"
     },
     {
-      "src": "/",
-      "dest": "/api/index.js"
+      "source": "/dashboard",
+      "destination": "/dashboard.html"
+    },
+    {
+      "source": "/welcome",
+      "destination": "/dashboard.html"
+    },
+    {
+      "source": "/beranda",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/radio",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/party",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/chart",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/karaoke",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/chat",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/wrapped",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/capsule",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/explore",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/profil",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/login",
+      "destination": "/login.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/admin.html"
     }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/(.*)",
       "headers": [
         {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
         },
         {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+          "key": "X-Frame-Options",
+          "value": "DENY"
         },
         {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type,Authorization,X-Requested-With"
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/favicon.ico",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
+      "source": "/api/upload-avatar",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" }
+      ]
+    },
+    {
+      "source": "/api/config",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "private, max-age=300"
         }
       ]
     }
