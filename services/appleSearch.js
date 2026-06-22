@@ -1,64 +1,97 @@
-// services/appleSearch.js — v2
-// Tambah previewUrl dari iTunes agar download tidak perlu scraping aplmate
+// services/appleSearch.js — v3
+// Primary: Theresav API (https://api.theresav.biz.id/search/applemusic)
+// Fallback: iTunes Search API
 
 const axios = require('axios');
-const cheerio = require('cheerio');
 
 class AppleSearchService {
 
     async search(query, region = 'id') {
         try {
-            const scrapeResult = await this.searchByScraping(query, region);
-            if (scrapeResult && scrapeResult.length > 0) {
-                return { status: true, query, region, total: scrapeResult.length, data: scrapeResult };
-            }
+            return await this.searchByTheresav(query);
         } catch (err) {
-            console.warn('[appleSearch] Scraping gagal, fallback ke iTunes API:', err.message);
+            console.warn('[appleSearch] Theresav gagal, fallback ke iTunes API:', err.message);
+            return await this.searchByITunes(query, region);
         }
-        return await this.searchByITunes(query, region);
     }
 
-    async searchByScraping(query, region = 'id') {
-        const url = `https://music.apple.com/${region}/search?term=${encodeURIComponent(query)}`;
-        const { data } = await axios.get(url, {
+    /**
+     * Primary: Theresav Apple Music Search
+     * GET https://api.theresav.biz.id/search/applemusic?q=...&apikey=...
+     *
+     * Response shape:
+     * {
+     *   status: true,
+     *   query: "...",
+     *   total: 6,
+     *   results: [
+     *     { title, artist, link, image }
+     *   ]
+     * }
+     */
+    async searchByTheresav(query) {
+        const apikey = process.env.THERESAV_API_KEY;
+        if (!apikey) throw new Error('THERESAV_API_KEY env var tidak di-set');
+
+        const { data } = await axios.get('https://api.theresav.biz.id/search/applemusic', {
+            params: { q: query, apikey },
             timeout: 15000,
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            }
+            headers: { 'User-Agent': 'PagaskaMusic/3.2.0' },
         });
 
-        const $ = cheerio.load(data);
-        const results = [];
-        $(".top-search-lockup, .shelf-grid__item, .track-lockup").each((i, el) => {
-            const title  = $(el).find(".top-search-lockup__primary__title, .product-lockup__title, .track-lockup__title").text().trim();
-            const artist = $(el).find(".top-search-lockup__secondary, .product-lockup__subtitle, .track-lockup__subtitle").text().trim();
-            const link   = $(el).find("a.click-action, a.product-lockup__link, a.track-lockup__link").attr("href");
-            let image = $(el).find("picture source[type='image/webp']").attr("srcset")?.split(" ")[0]
-                     || $(el).find("img").attr("src")
-                     || $(el).find("source").attr("srcset")?.split(" ")[0];
-            const trackId = this.extractTrackId(link);
-            if (title && artist && link) {
-                results.push({
-                    id: trackId || `track_${i}`,
-                    title,
-                    artist: artist.replace(/^Song\s*[·•]\s*/, '').replace(/^Artist\s*[·•]\s*/, ''),
-                    link: link.startsWith("http") ? link : `https://music.apple.com${link}`,
-                    image: image || null,
-                    previewUrl: null, // scraping tidak dapat previewUrl
-                    type: this.detectType(link),
-                    source: 'scrape'
-                });
-            }
+        if (!data?.status || !Array.isArray(data.results)) {
+            throw new Error(data?.message || 'Theresav search: response tidak valid');
+        }
+
+        if (!data.results.length) {
+            throw new Error('Theresav search: tidak ada hasil');
+        }
+
+        const results = data.results.map((r, i) => {
+            // "Song · Idgitaf" atau "Album · Idgitaf" → strip prefix
+            const artistClean = (r.artist || '')
+                .replace(/^(Song|Album|Artist|Playlist)\s*[·•]\s*/i, '')
+                .trim();
+
+            // Deteksi type dari prefix artist field & link
+            const type = this._detectTypeFromArtist(r.artist) || this._detectTypeFromLink(r.link);
+
+            // Extract trackId dari link Apple Music (?i=...)
+            const trackId = this._extractTrackId(r.link);
+
+            return {
+                id:         trackId || `theresav_${i}`,
+                title:      r.title  || 'Unknown',
+                artist:     artistClean || 'Unknown',
+                link:       r.link   || null,
+                image:      r.image  || null,
+                // Theresav search tidak kasih previewUrl/duration
+                previewUrl: null,
+                duration:   null,
+                album:      null,
+                year:       null,
+                type,
+                source:     'theresav',
+            };
         });
-        return results.slice(0, 20);
+
+        return {
+            status: true,
+            query,
+            region: 'us', // Theresav pakai US store
+            total: results.length,
+            data: results,
+        };
     }
 
+    /**
+     * Fallback: iTunes Search API
+     */
     async searchByITunes(query, region = 'id') {
         const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=${region}&media=music&entity=song&limit=20`;
         const { data } = await axios.get(url, {
             timeout: 15000,
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; ZemzBot/1.0)" }
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PagaskaMusic/3.2.0)' },
         });
 
         if (!data?.results?.length) throw new Error('Tidak ada hasil dari iTunes API');
@@ -69,32 +102,46 @@ class AppleSearchService {
             artist:     r.artistName  || 'Unknown',
             link:       r.trackViewUrl || `https://music.apple.com/${region}/album/${r.collectionId}?i=${r.trackId}`,
             image:      (r.artworkUrl100 || '').replace('100x100', '500x500'),
-            // ★ KUNCI: simpan previewUrl agar download tidak perlu scraping
             previewUrl: r.previewUrl  || null,
-            duration:   this.msToDuration(r.trackTimeMillis),
+            duration:   this._msToDuration(r.trackTimeMillis),
             album:      r.collectionName || '',
             year:       r.releaseDate ? new Date(r.releaseDate).getFullYear() : null,
             type:       'song',
-            source:     'itunes'
+            source:     'itunes',
         }));
 
         return { status: true, query, region, total: results.length, data: results };
     }
 
-    msToDuration(ms) {
-        if (!ms) return '0:00';
+    // ── Helpers ──────────────────────────────────────────────────
+
+    _msToDuration(ms) {
+        if (!ms) return null;
         const s = Math.floor(ms / 1000);
         return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     }
-    extractTrackId(url) {
+
+    _extractTrackId(url) {
         if (!url) return null;
         const m = url.match(/[?&]i=(\d+)/);
         return m ? m[1] : null;
     }
-    detectType(url) {
+
+    // Deteksi dari prefix "Song · " / "Album · " di field artist Theresav
+    _detectTypeFromArtist(artistField) {
+        if (!artistField) return null;
+        const lower = artistField.toLowerCase();
+        if (lower.startsWith('song'))     return 'song';
+        if (lower.startsWith('album'))    return 'album';
+        if (lower.startsWith('artist'))   return 'artist';
+        if (lower.startsWith('playlist')) return 'playlist';
+        return null;
+    }
+
+    _detectTypeFromLink(url) {
         if (!url) return 'unknown';
+        if (url.includes('?i=') || url.includes('/song/')) return 'song';
         if (url.includes('/album/'))    return 'album';
-        if (url.includes('/song/')   || url.includes('?i=')) return 'song';
         if (url.includes('/artist/'))   return 'artist';
         if (url.includes('/playlist/')) return 'playlist';
         return 'unknown';
