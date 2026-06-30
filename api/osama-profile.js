@@ -24,7 +24,30 @@ function parseSession(cookieHeader, secret) {
   }
 }
 
+const ALLOWED_ORIGINS = [
+  'https://music.osama.my.id',
+  'https://osama.my.id',
+  'http://localhost:3000',
+];
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
+}
+
 module.exports = async (req, res) => {
+  applyCors(req, res);
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   const session = parseSession(req.headers.cookie, process.env.SESSION_SECRET);
   if (!session) {
     return res.status(401).json({ ok: false, reason: 'not_authenticated' });
