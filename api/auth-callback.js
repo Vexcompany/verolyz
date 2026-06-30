@@ -83,8 +83,14 @@ module.exports = async (req, res) => {
     const cookieValue = buildCookie(sessionPayload, process.env.SESSION_SECRET || 'osama-secret');
     const maxAge      = 60 * 60 * 24 * 30;
 
+    // SameSite=None + Secure WAJIB di sini karena cookie ini akan dibaca
+    // lewat fetch() cross-site dari music.osama.my.id, bukan dari domain
+    // backend (verolyz-kingdom3.vercel.app) itu sendiri. Dengan SameSite=Lax
+    // (default sebelumnya), browser diam-diam tidak mengirim cookie ini
+    // saat fetch cross-origin -> /api/auth/me selalu dianggap "belum login"
+    // walau OAuth-nya sendiri sukses.
     res.setHeader('Set-Cookie', [
-      `osama_session=${cookieValue}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+      `osama_session=${cookieValue}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=None`,
     ]);
 
     res.redirect(`${frontendUrl}/index.html`);
