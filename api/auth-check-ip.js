@@ -36,7 +36,33 @@ function buildCookie(payload, secret) {
   return `${data}.${sig}`;
 }
 
+// Daftar origin frontend yang boleh akses endpoint ini dengan cookie.
+// PENTING: saat credentials/cookie dipakai, header ini WAJIB diisi origin
+// spesifik (bukan '*'), kalau tidak browser akan menolak responsenya.
+const ALLOWED_ORIGINS = [
+  'https://music.osama.my.id',
+  'https://osama.my.id',
+  'http://localhost:3000',
+];
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
+}
+
 module.exports = async (req, res) => {
+  applyCors(req, res);
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   const session = parseSession(req.headers.cookie, process.env.SESSION_SECRET);
   if (session) {
     return res.json({ ok: true, source: 'cookie', user: session });
@@ -70,8 +96,10 @@ module.exports = async (req, res) => {
     const cookieValue = buildCookie(sessionPayload, process.env.SESSION_SECRET);
     const maxAge      = 60 * 60 * 24 * 30;
 
+    // SameSite=None + Secure WAJIB karena cookie ini dipakai lintas-domain
+    // (backend di vercel.app, frontend di music.osama.my.id).
     res.setHeader('Set-Cookie', [
-      `osama_session=${cookieValue}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+      `osama_session=${cookieValue}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=None`,
     ]);
 
     return res.json({ ok: true, source: 'ip', user: sessionPayload });
