@@ -25,16 +25,47 @@
     },
     "api/osama-profile.js": {
       "maxDuration": 10
+    },
+    "api/config.js": {
+      "maxDuration": 10
     }
   },
   "routes": [
-    { "src": "/api/upload-avatar",  "dest": "/api/upload-avatar.js" },
-    { "src": "/api/auth/google",    "dest": "/api/auth-google.js" },
-    { "src": "/api/auth/callback",  "dest": "/api/auth-callback.js" },
-    { "src": "/api/auth/check-ip",  "dest": "/api/auth-check-ip.js" },
-    { "src": "/api/auth/me",        "dest": "/api/auth-me.js" },
-    { "src": "/api/auth/logout",    "dest": "/api/auth-logout.js" },
-    { "src": "/api/osama/profile",  "dest": "/api/osama-profile.js" },
-    { "src": "/(.*)",               "dest": "/api/index.js" }
+    {
+      "src": "/api/upload-avatar",
+      "dest": "/api/upload-avatar.js"
+    },
+    {
+      "src": "/api/auth/google",
+      "dest": "/api/auth-google.js"
+    },
+    {
+      "src": "/api/auth/callback",
+      "dest": "/api/auth-callback.js"
+    },
+    {
+      "src": "/api/auth/check-ip",
+      "dest": "/api/auth-check-ip.js"
+    },
+    {
+      "src": "/api/auth/me",
+      "dest": "/api/auth-me.js"
+    },
+    {
+      "src": "/api/auth/logout",
+      "dest": "/api/auth-logout.js"
+    },
+    {
+      "src": "/api/osama/profile",
+      "dest": "/api/osama-profile.js"
+    },
+    {
+      "src": "/api/config",
+      "dest": "/api/config.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.js"
+    }
   ]
 }
