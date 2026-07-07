@@ -1,6 +1,7 @@
 'use strict';
 
 const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
 
 function getSupabase() {
   return createClient(
@@ -10,21 +11,27 @@ function getSupabase() {
   );
 }
 
-function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return req.socket?.remoteAddress || req.connection?.remoteAddress || '';
-}
-
 function buildCookie(payload, secret) {
-  const data    = Buffer.from(JSON.stringify(payload)).toString('base64');
-  const sig     = Buffer.from(data + secret).toString('base64').slice(0, 16);
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64');
+  const sig  = Buffer.from(data + (secret || 'osama-secret')).toString('base64').slice(0, 16);
   return `${data}.${sig}`;
 }
 
+function getDeviceFingerprint(req) {
+  const ua   = req.headers['user-agent'] || '';
+  const lang = req.headers['accept-language'] || '';
+  return crypto.createHash('sha1').update(ua + lang).digest('hex').slice(0, 16);
+}
+
+function signDeviceToken(userId, fingerprint, secret) {
+  const day     = Math.floor(Date.now() / 86400000);
+  const payload = `${userId}:${fingerprint}:${day}`;
+  return crypto.createHmac('sha256', secret || 'osama-dt-secret').update(payload).digest('hex');
+}
+
 module.exports = async (req, res) => {
-  const { code, error } = req.query;
   const frontendUrl = process.env.OSAMA_FRONTEND_URL || 'https://music.osama.my.id';
+  const { code, error } = req.query;
 
   if (error || !code) {
     return res.redirect(`${frontendUrl}/login.html?error=oauth_denied`);
@@ -52,9 +59,7 @@ module.exports = async (req, res) => {
     const profile = await profileRes.json();
     if (!profile.email) throw new Error('Could not fetch Google profile');
 
-    const ip = getClientIp(req);
     const sb = getSupabase();
-
     const { data: user, error: upsertErr } = await sb
       .from('osama_users')
       .upsert(
@@ -62,7 +67,6 @@ module.exports = async (req, res) => {
           email:        profile.email,
           display_name: profile.name || profile.email.split('@')[0],
           avatar_url:   profile.picture || '',
-          ip_address:   ip,
           updated_at:   new Date().toISOString(),
         },
         { onConflict: 'email', returning: 'representation' }
@@ -83,20 +87,18 @@ module.exports = async (req, res) => {
     const cookieValue = buildCookie(sessionPayload, process.env.SESSION_SECRET || 'osama-secret');
     const maxAge      = 60 * 60 * 24 * 30;
 
-    // SameSite=None + Secure WAJIB di sini karena cookie ini akan dibaca
-    // lewat fetch() cross-site dari music.osama.my.id, bukan dari domain
-    // backend (verolyz-kingdom3.vercel.app) itu sendiri. Dengan SameSite=Lax
-    // (default sebelumnya), browser diam-diam tidak mengirim cookie ini
-    // saat fetch cross-origin -> /api/auth/me selalu dianggap "belum login"
-    // walau OAuth-nya sendiri sukses.
     res.setHeader('Set-Cookie', [
       `osama_session=${cookieValue}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=None`,
     ]);
 
-    res.redirect(`${frontendUrl}/index.html`);
+    // Generate device token dan pass via query param ke frontend
+    // (tidak bisa lewat header karena ini redirect)
+    const fingerprint   = getDeviceFingerprint(req);
+    const deviceToken   = signDeviceToken(user.id, fingerprint, process.env.SESSION_SECRET);
+
+    return res.redirect(`${frontendUrl}/index.html?dt=${deviceToken}`);
   } catch (err) {
     console.error('[auth-callback]', err.message);
-    const frontendUrl = process.env.OSAMA_FRONTEND_URL || 'https://music.osama.my.id';
-    res.redirect(`${frontendUrl}/login.html?error=server_error`);
+    return res.redirect(`${frontendUrl}/login.html?error=server_error`);
   }
 };

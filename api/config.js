@@ -1,9 +1,8 @@
 'use strict';
 
-// Endpoint ini sekarang TIDAK lagi pakai IP-based login.
-// IP login dihapus karena bisa bocor saat user berbeda share WiFi yang sama.
-// Endpoint ini tetap ada untuk backward compat, tapi hanya cek cookie session.
-// Login otomatis sekarang lewat device token (x-device-token header) di /api/auth/me.
+// Endpoint ini serve Supabase anon key ke frontend secara aman.
+// Hanya bisa diakses kalau user punya session cookie yang valid.
+// Service role key TIDAK pernah dikirim ke frontend.
 
 const ALLOWED_ORIGINS = [
   'https://music.osama.my.id',
@@ -43,11 +42,13 @@ module.exports = async (req, res) => {
     return res.status(204).end();
   }
 
-  // Hanya cek cookie — tidak ada IP lookup lagi
   const session = parseSession(req.headers.cookie, process.env.SESSION_SECRET);
-  if (session) {
-    return res.json({ ok: true, source: 'cookie' });
+  if (!session) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  return res.json({ ok: false, reason: 'no_session' });
+  return res.json({
+    sb_url:      process.env.SUPABASE_URL,
+    sb_anon_key: process.env.SUPABASE_ANON_KEY,
+  });
 };
