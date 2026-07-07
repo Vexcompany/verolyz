@@ -1,61 +1,58 @@
-// server.js — Pagaska Music Backend (R2 Refactor)
+// api/server.js — Vercel Serverless Function
+// Wrapper untuk semua routes non-notification:
+// /api/apple-search, /api/stream, /api/karaoke
 
-const express = require('express');
-const app     = express();
+const express        = require('express');
+const corsMiddleware = require('../middleware/cors.js');
+const searchRoutes   = require('../routes/search.js');
+const streamRoutes   = require('../routes/stream.js');
+const karaokeRoutes  = require('../routes/karaoke.js');
 
-// ── CORS — HARUS paling pertama, sebelum route apapun ────────────
-const corsMiddleware = require('./middleware/cors');
+// Muat .env hanya saat development lokal
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
+const app = express();
+
+// CORS harus paling pertama
 app.use(corsMiddleware);
-
-// ── Body Parser ──────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── Routes ───────────────────────────────────────────────────────
-const searchRoutes   = require('./routes/search');
-const streamRoutes   = require('./routes/stream');
-const karaokeRoutes = require('./routes/karaoke');
-
-// Search: GET /api/apple-search?q=
+// Routes
 app.use('/api/apple-search', searchRoutes);
+app.use('/api/stream',       streamRoutes);
+app.use('/api/karaoke',      karaokeRoutes);
 
-// Stream / Download via R2: GET /api/stream?id=VIDEO_ID
-app.use('/api/stream', streamRoutes);
-app.use('/api/karaoke', karaokeRoutes);
-
-// ── Health Check ─────────────────────────────────────────────────
+// Health check
 app.get('/', (req, res) => {
-    res.json({
-        status:  'ok',
-        message: 'Pagaska Music Backend 🎵 (R2 Edition)',
-        endpoints: [
-            'GET  /api/apple-search?q=query[&region=id]',
-            'GET  /api/stream?id=YOUTUBE_VIDEO_ID',
-            'GET  /api/stream/info?id=YOUTUBE_VIDEO_ID',
-            'GET  /api/stream/tracks[?page=1&limit=50]',
-            'GET  /api/stream/search?q=query',
-        ],
-    });
+  res.json({
+    status: 'ok',
+    message: 'Pagaska Music Backend 🎵 (R2 Edition)',
+    endpoints: [
+      'GET  /api/apple-search?q=query[&region=id]',
+      'GET  /api/stream?id=YOUTUBE_VIDEO_ID',
+      'POST /api/stream',
+      'GET  /api/stream/info?trackId=xxx',
+      'GET  /api/stream/tracks',
+      'GET  /api/stream/search?q=query',
+      'GET  /api/stream/balancer-status',
+      'POST /api/karaoke',
+      'GET  /api/karaoke/status?trackId=xxx',
+    ],
+  });
 });
 
-// ── 404 ──────────────────────────────────────────────────────────
+// 404
 app.use((req, res) => {
-    res.status(404).json({ status: false, message: `${req.method} ${req.path} not found` });
+  res.status(404).json({ status: false, message: `${req.method} ${req.path} not found` });
 });
 
-// ── Global Error Handler ─────────────────────────────────────────
+// Error handler
 app.use((err, req, res, _next) => {
-    console.error('[Global Error]', err.message);
-    res.status(500).json({ status: false, message: err.message });
+  console.error('[Error]', err.message);
+  res.status(500).json({ status: false, message: err.message });
 });
-
-// ── Start (hanya berjalan saat lokal, Vercel handle sendiri) ─────
-if (process.env.NODE_ENV !== 'production' || process.env.VERCEL !== '1') {
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`✅ Pagaska Music Backend running on port ${PORT}`);
-        console.log(`   R2 Bucket: ${process.env.R2_BUCKET_NAME || '(not set)'}`);
-    });
-}
 
 module.exports = app;
