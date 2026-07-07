@@ -71,7 +71,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === 'PATCH') {
-    const allowed = ['liked_songs', 'queue', 'last_track'];
+    const allowed = ['liked_songs', 'queue', 'last_track', 'avatar_url', 'display_name'];
     const updates = {};
 
     for (const key of allowed) {

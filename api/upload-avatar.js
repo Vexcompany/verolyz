@@ -1,19 +1,30 @@
-// api/upload-avatar.js — Vercel Serverless Function
-// Upload foto profil ke Cloudflare R2 via S3-compatible REST API
-// TANPA dependency eksternal — hanya pakai Web Crypto API (built-in Node.js 18+)
-//
-// Env vars di Vercel Dashboard (backend repo verolyz-kingdom3):
-//   R2_ENDPOINT   = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-//   R2_BUCKET_NAME     = <nama_bucket>
-//   R2_ACCESS_KEY_ID = <R2_Access_Key_ID>
-//   R2_SECRET_ACCESS_KEY = <R2_Secret_Access_Key>
-//   R2_PUBLIC_URL = https://<domain_publik> (tanpa trailing slash)
-//                   HARUS domain kustom atau *.r2.dev — BUKAN *.workers.dev
+// api/upload-avatar.js
+'use strict';
+const { createHmac, createHash } = require('node:crypto');
+const { createClient } = require('@supabase/supabase-js');
 
-import { createHmac, createHash } from 'node:crypto';
-export const config = {
-  api: { bodyParser: { sizeLimit: '4mb' } }
-};
+function getSupabase() {
+  return createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_KEY,
+    { auth: { persistSession: false } }
+  );
+}
+
+function parseSession(cookieHeader, secret) {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(/osama_session=([^;]+)/);
+  if (!match) return null;
+  try {
+    const [data, sig] = match[1].split('.');
+    const expectedSig = Buffer.from(data + (secret || 'osama-secret')).toString('base64').slice(0, 16);
+    if (sig !== expectedSig) return null;
+    return JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
 
 // ── AWS Signature V4 (pure Node.js crypto) ─────────────────
 
@@ -87,14 +98,23 @@ async function putObjectR2({ endpoint, bucket, accessKey, secretKey, key, body, 
 }
 
 // ── Handler ─────────────────────────────────────────────────
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
+module.exports = async function handler(req, res) {
+  const ALLOWED_ORIGINS = ['https://music.osama.my.id','https://osama.my.id','http://localhost:3000'];
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST')   return res.status(405).json({ error: 'Method not allowed' });
 
-  const { imageBase64, mimeType, userKey } = req.body || {};
+  // Verifikasi session untuk keamanan
+  const session = parseSession(req.headers.cookie, process.env.SESSION_SECRET);
+  if (!session) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { imageBase64, mimeType } = req.body || {};
+  const userKey = session.id; // Pakai ID dari session, bukan dari body (anti-spoofing)
 
   if (!imageBase64 || !mimeType || !userKey) {
     return res.status(400).json({ error: 'imageBase64, mimeType, userKey wajib diisi' });
@@ -147,7 +167,17 @@ export default async function handler(req, res) {
     });
 
     const publicUrl = `${R2_PUBLIC_URL}/${filename}`;
-    return res.status(200).json({ url: publicUrl });
+
+    // Update avatar_url di Supabase osama_users
+    try {
+      const sb = getSupabase();
+      await sb.from('osama_users').update({ avatar_url: publicUrl, updated_at: new Date().toISOString() }).eq('id', session.id);
+    } catch (dbErr) {
+      console.warn('[upload-avatar] DB update failed:', dbErr.message);
+      // Tetap return URL ke frontend walau DB gagal
+    }
+
+    return res.status(200).json({ ok: true, url: publicUrl });
 
   } catch (err) {
     console.error('[upload-avatar]', err);
