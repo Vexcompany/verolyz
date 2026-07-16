@@ -11,25 +11,16 @@
     "api/upload-avatar.js": {
       "maxDuration": 15
     },
-    "api/auth-callback.js": {
+    "api/auth.js": {
       "maxDuration": 15
-    },
-    "api/auth-check-ip.js": {
-      "maxDuration": 10
-    },
-    "api/auth-me.js": {
-      "maxDuration": 10
-    },
-    "api/auth-google.js": {
-      "maxDuration": 10
-    },
-    "api/auth-logout.js": {
-      "maxDuration": 10
     },
     "api/osama-profile.js": {
       "maxDuration": 10
     },
     "api/config.js": {
+      "maxDuration": 10
+    },
+    "api/notifications.js": {
       "maxDuration": 10
     }
   },
@@ -39,24 +30,8 @@
       "dest": "/api/upload-avatar.js"
     },
     {
-      "src": "/api/auth/google",
-      "dest": "/api/auth-google.js"
-    },
-    {
-      "src": "/api/auth/callback",
-      "dest": "/api/auth-callback.js"
-    },
-    {
-      "src": "/api/auth/check-ip",
-      "dest": "/api/auth-check-ip.js"
-    },
-    {
-      "src": "/api/auth/me",
-      "dest": "/api/auth-me.js"
-    },
-    {
-      "src": "/api/auth/logout",
-      "dest": "/api/auth-logout.js"
+      "src": "/api/auth/(google|callback|check-ip|me|logout)",
+      "dest": "/api/auth.js"
     },
     {
       "src": "/api/osama/profile",
