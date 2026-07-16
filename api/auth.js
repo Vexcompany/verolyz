@@ -1,16 +1,5 @@
 'use strict';
 
-/**
- * api/auth.js — Gabungan semua auth endpoints (Vercel Serverless)
- *
- * Routes yang ditangani:
- *   GET  /api/auth/google       → redirect ke Google OAuth
- *   GET  /api/auth/callback     → handle OAuth callback dari Google
- *   GET  /api/auth/check-ip     → cek session (backward compat)
- *   GET  /api/auth/me           → get user info + device token
- *   GET  /api/auth/logout       → clear session cookie
- */
-
 const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
 
@@ -257,7 +246,6 @@ module.exports = async (req, res) => {
     return handleGoogle(req, res);
   }
 
-  // Semua endpoint lain butuh CORS
   applyCors(req, res);
 
   if (req.method === 'OPTIONS') {
