@@ -9,7 +9,7 @@ const ALLOWED_ORIGINS = [
   'https://pagaska.my.id',
   'http://localhost',
   'http://127.0.0.1',
-  // Tambahkan domain lain kalau perlu
+  'https://taksakamusic-sandy.vercel.app',
 ];
 
 function applyCors(req, res) {
